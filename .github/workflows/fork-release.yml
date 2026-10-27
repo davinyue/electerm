@@ -1,0 +1,126 @@
+name: Fork 多平台构建
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: 构建 ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x64
+            runner: ubuntu-24.04
+          - platform: windows-x64
+            runner: windows-2022
+          - platform: macos-arm64
+            runner: macos-15
+    runs-on: ${{ matrix.runner }}
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      WORKFLOW_NAME: fork-release
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+      - uses: actions/setup-python@v5
+        if: matrix.platform == 'windows-x64'
+        with:
+          python-version: '3.7'
+          architecture: x64
+      - name: 安装依赖
+        run: |
+          npm config set legacy-peer-deps true
+          npm install -g yarn
+          if [ "$RUNNER_OS" = Windows ]; then
+            npm install -g node-gyp
+            npm uninstall node-pty serialport
+            npm install
+            npm install -S -E node-pty@1.1.0-beta14
+            npm install -S -E serialport@13.0.0
+          else
+            npm ci
+          fi
+      - name: 准备应用
+        run: |
+          npm run b
+          npm run pb
+      - name: 构建 Linux x64
+        if: matrix.platform == 'linux-x64'
+        run: |
+          node -e "require('./src/build/bin/build-common').writeSrc('linux-x64.tar.gz')"
+          npx electron-builder --linux tar.gz --x64 --publish never -c.directories.output=dist/linux-tar
+          node -e "require('./src/build/bin/build-common').writeSrc('linux-amd64.deb')"
+          npx electron-builder --linux deb --x64 --publish never -c.directories.output=dist/linux-deb
+          node -e "require('./src/build/bin/build-common').writeSrc('linux-x86_64.AppImage')"
+          npx electron-builder --linux AppImage --x64 --publish never -c.directories.output=dist/linux-appimage
+      - name: 构建 Windows x64
+        if: matrix.platform == 'windows-x64'
+        run: |
+          node -e "const build = require('./src/build/bin/build-common'); build.patchNsisKeepShortcuts(); build.writeSrc('win-x64-installer.exe')"
+          npx electron-builder --win nsis --x64 --publish never
+      - name: 构建 macOS ARM64（未签名）
+        if: matrix.platform == 'macos-arm64'
+        run: |
+          node -e "require('./src/build/bin/build-common').writeSrc('mac-arm64.dmg')"
+          npx electron-rebuild --arch arm64 -f work/app
+          npx electron-builder --mac dmg --arm64 --publish never -c.mac.notarize=false -c.mac.identity=null
+      - name: 保存构建制品
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            dist/**/*.deb
+            dist/**/*.tar.gz
+            dist/**/*.AppImage
+            dist/*-installer.exe
+            dist/*.dmg
+
+  draft:
+    name: 汇总 Release 草稿
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+      - name: 创建草稿并上传附件
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          tag="v${version}"
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" >/dev/null 2>&1; then
+            echo "标签 ${tag} 已存在，停止以避免覆盖已有发布。" >&2
+            exit 1
+          fi
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release ${tag} 已存在，停止以避免覆盖已有发布。" >&2
+            exit 1
+          fi
+          mapfile -d '' files < <(find release-assets -type f -print0)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo '未找到构建制品。' >&2
+            exit 1
+          fi
+          gh release create "$tag" "${files[@]}" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --draft --title "$tag" --notes '测试构建：Windows 和 macOS 制品未签名。发布前请下载并验证。'

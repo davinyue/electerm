@@ -37,7 +37,7 @@
   "sponsorLink": "https://electerm.org/sponsor-electerm",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/electerm/electerm.git"
+    "url": "git+https://github.com/davinyue/electerm.git"
   },
   "author": {
     "name": "ZHAO Xudong",
@@ -48,7 +48,7 @@
     "url": "https://github.com/electerm/electerm/issues"
   },
   "homepage": "https://electerm.org",
-  "releases": "https://github.com/electerm/electerm/releases",
+  "releases": "https://github.com/davinyue/electerm/releases",
   "engines": {
     "node": ">=16.0.0"
   },
