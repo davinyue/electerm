@@ -24,10 +24,19 @@ export default class TransferModalUI extends Component {
 
   handlePauseOrResumeAll = () => {
     const { store } = window
+    if (this.props.tabId) {
+      const pausing = !this.computePausing()
+      store.fileTransfers.filter(t => t.tabId === this.props.tabId).forEach(t => { t.pausing = pausing })
+      return
+    }
     store.pauseAllTransfer ? store.resumeAll() : store.pauseAll()
   }
 
   handleCancelAll = () => {
+    if (this.props.tabId) {
+      window.store.fileTransfers = window.store.fileTransfers.filter(t => t.tabId !== this.props.tabId)
+      return
+    }
     window.store.cancelAll()
   }
 
@@ -128,6 +137,7 @@ export default class TransferModalUI extends Component {
   }
 
   renderFilters = () => {
+    if (this.props.tabId) return null
     const groups = this.getGroups()
     const all = [
       {

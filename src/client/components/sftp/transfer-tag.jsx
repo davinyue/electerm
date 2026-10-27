@@ -20,7 +20,7 @@ export default function TransferTag (props) {
   const typeFromTitle = e(typeFrom)
   const typeToTitle = e(typeTo)
   const title = error
-    ? `[error: ${error}]`
+    ? `[${e('error')}: ${error}]`
     : ''
   return (
     <span className={'flex-child transfer-tag transfer-status-' + tagStatus} title={title}>

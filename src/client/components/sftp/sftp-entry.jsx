@@ -2,7 +2,7 @@ import { Component } from 'react'
 import { refs } from '../common/ref'
 import generate from '../../common/uid'
 import runIdle from '../../common/run-idle'
-import { Spin } from 'antd'
+import { Spin, Splitter } from 'antd'
 import { notification } from '../common/notification'
 import Modal from '../common/modal'
 import clone from '../../common/to-simple-obj'
@@ -32,11 +32,15 @@ import { LoadingOutlined, ReloadOutlined } from '@ant-design/icons'
 import * as owner from './owner-list'
 import AddressBar from './address-bar'
 import KeywordBar from './keyword-bar'
+import TransferPanel from './TransferPanel'
+import { getItem, setItem } from '../../common/safe-local-storage'
 import getProxy from '../../common/get-proxy'
 import { createTerm } from '../terminal/terminal-apis'
 import './sftp.styl'
 
 const e = window.translate
+const transferHeightKey = 'sftp-transfer-panel-ratio'
+const transferHeaderHeight = 32
 
 export default class Sftp extends Component {
   constructor (props) {
@@ -50,7 +54,9 @@ export default class Sftp extends Component {
       ...this.defaultState(),
       loadingSftp: false,
       inited: false,
-      ready: false
+      ready: false,
+      transferRatio: Math.min(0.99, Math.max(0.01, Number(getItem(transferHeightKey)) || 0.25)),
+      transferCollapsed: false
     }
     this.retryCount = 0
   }
@@ -1301,6 +1307,8 @@ export default class Sftp extends Component {
       type,
       parentItem: this.renderParentItem(type),
       ...this.props,
+      height: style.height,
+      hasKeyword: !!this.state[`${type}Keyword`],
       ...pick(
         this,
         [
@@ -1381,7 +1389,7 @@ export default class Sftp extends Component {
     )
   }
 
-  renderSections () {
+  renderSections (height) {
     if (!this.isActive()) {
       return null
     }
@@ -1390,7 +1398,7 @@ export default class Sftp extends Component {
       typeMap.remote
     ]
     const {
-      height, width
+      width
     } = this.props
     const shouldRenderRemote = this.shouldRenderRemote()
     if (!shouldRenderRemote) {
@@ -1426,7 +1434,14 @@ export default class Sftp extends Component {
         </div>
       )
     }
-    const { height } = this.props
+    const { height, tab } = this.props
+    const language = this.props.config.language || window.initLanguage || 'en_us'
+    const { transferRatio, transferCollapsed } = this.state
+    const availableHeight = Math.max(0, height - transferHeaderHeight)
+    const minUpper = Math.min(240, availableHeight * 0.5)
+    const minLower = Math.min(100, availableHeight * 0.3)
+    const lowerHeight = Math.max(minLower, Math.min(availableHeight - minUpper, availableHeight * transferRatio))
+    const upperHeight = transferCollapsed ? availableHeight : availableHeight - lowerHeight
     const all = {
       className: 'sftp-wrap overhide relative',
       id: `id-${id}`,
@@ -1436,9 +1451,26 @@ export default class Sftp extends Component {
       <div
         {...all}
       >
-        {
-          this.renderSections()
-        }
+        {transferCollapsed
+          ? <div className='sftp-sections' style={{ height: upperHeight }}>{this.renderSections(upperHeight)}</div>
+          : (
+            <Splitter
+              orientation='vertical'
+              style={{ height: availableHeight }}
+              onResize={sizes => availableHeight && this.setState({ transferRatio: sizes[1] / availableHeight })}
+              onResizeEnd={sizes => availableHeight && setItem(transferHeightKey, String(sizes[1] / availableHeight))}
+            >
+              <Splitter.Panel size={upperHeight} min={minUpper}>
+                <div className='sftp-sections' style={{ height: upperHeight }}>{this.renderSections(upperHeight)}</div>
+              </Splitter.Panel>
+              <Splitter.Panel size={lowerHeight} min={minLower}>
+                <TransferPanel key={tab.id} tabId={tab.id} language={language} />
+              </Splitter.Panel>
+            </Splitter>
+            )}
+        <button type='button' className='sftp-transfer-toggle' onClick={() => this.setState({ transferCollapsed: !transferCollapsed })} aria-expanded={!transferCollapsed}>
+          {e('fileTransferRecords')} {transferCollapsed ? '▴' : '▾'}
+        </button>
       </div>
     )
   }
